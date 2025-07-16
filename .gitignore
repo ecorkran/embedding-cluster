@@ -205,3 +205,73 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Python
+.venv/
+.python-version
+__pycache__/
+*.py[cod]
+
+# JetBrains IDEs
+.idea/
+*.iml
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+
+# Test, coverage, and build artifacts
+htmlcov/
+.tox/
+.nox/
+.pytest_cache/
+.coverage*
+.cache
+*.cover
+*.py.cover
+.hypothesis/
+
+# Jupyter/IPython
+.ipynb_checkpoints
+profile_default/
+ipython_config.py
+
+# Misc
+*.log
+
+# Ignore compiled C files
+*.so
+
+# Ignore uv environment lock for libraries (uncomment if this is a library)
+# uv.lock
+
+# Ignore pipenv (uncomment if not using)
+# Pipfile.lock
+
+# Ignore Sphinx docs build
+/docs/_build/
+
+# Ignore dist and build
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Ignore PyInstaller
+*.spec
+
+# Ignore local settings
+local_settings.py
+
+# Ignore database files
+*.sqlite3
+*.sqlite3-journal
+
+# Ignore downloads, wheels, and parts
+wheels/
+downloads/
+parts/
+
+# Ignore other IDE/project files
+.vscode/
+*.swp
