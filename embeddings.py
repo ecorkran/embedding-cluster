@@ -1,9 +1,3 @@
-import os
-os.environ["TOKENIZERS_PARALLELISM"] = "false"
-
-import warnings
-warnings.filterwarnings("ignore", message=".*force_all_finite.*")
-
 import argparse
 import glob
 import os
@@ -11,11 +5,18 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 import numpy as np
-import textwrap
+from matplotlib.axes import Axes
+import warnings
+
 from sentence_transformers import SentenceTransformer
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.manifold import TSNE
 from clusters import cluster_embeddings, sweep_agglomerative
+from dump_utils import dump_clusters
+
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+warnings.filterwarnings("ignore", message=".*force_all_finite.*")
+
 
 def get_file_paths(src_pattern):
     return sorted(glob.glob(src_pattern))
@@ -33,7 +34,7 @@ def dry_run(paths):
     for p in paths:
         print(os.path.abspath(p))
 
-def plot_similarity_histogram(similarities, ax, cbar_ax, n_bins=100):
+def plot_similarity_histogram(similarities: np.ndarray, ax: Axes, cbar_ax: Axes, n_bins: int = 100) -> None:
     # Plot a shaded histogram with percentiles
     hist_cmap = plt.get_cmap('Blues')
     n, bins, patches = ax.hist(
@@ -107,17 +108,18 @@ def multi_cluster_plot(X, cluster_results, similarities, annotate_points=False, 
         "Agglomerative": cluster_results["agg_labels"],
         "HDBSCAN": cluster_results["hdb_labels"],
     }
-    fig = plt.figure(figsize=(18, 8))
+    plt.figure(figsize=(18, 8))
     gs = gridspec.GridSpec(2, 6, height_ratios=[3, 2], width_ratios=[5, 0.3, 5, 0.3, 5, 0.3])
 
     for i, (name, labels) in enumerate(labels_dict.items()):
-        ax = plt.subplot(gs[0, i*2])
+        ax = plt.subplot(gs[0, i*2])  # type: ignore
         unique_labels, counts = np.unique(labels, return_counts=True)
         label_to_count = dict(zip(unique_labels, counts))
         # Identify singleton clusters
         singleton_labels = set(lbl for lbl, count in label_to_count.items() if count == 1)
         non_singleton_labels = [lbl for lbl in unique_labels if lbl not in singleton_labels]
         n_non_singleton = len(non_singleton_labels)
+        color_map = None  # ensure defined for type-checker
         if n_non_singleton > 0:
             color_map = plt.get_cmap('viridis', n_non_singleton)
             label_to_color = {lbl: color_map(i) for i, lbl in enumerate(non_singleton_labels)}
@@ -133,7 +135,7 @@ def multi_cluster_plot(X, cluster_results, similarities, annotate_points=False, 
             'none' if lbl in singleton_labels else 'k'
             for lbl in labels
         ])
-        scatter = ax.scatter(
+        ax.scatter(
             X2[:, 0], X2[:, 1],
             c=point_colors,
             s=50,
@@ -146,7 +148,7 @@ def multi_cluster_plot(X, cluster_results, similarities, annotate_points=False, 
         if n_non_singleton > 0:
             norm = mpl.colors.Normalize(vmin=0, vmax=n_non_singleton-1)
             sm = mpl.cm.ScalarMappable(norm=norm, cmap=color_map)
-            cax = fig.add_subplot(gs[0, i*2+1])
+            cax = plt.subplot(gs[0, i*2+1])  # type: ignore
             cbar = plt.colorbar(sm, cax=cax, orientation='vertical')
             cbar.set_ticks([])
         if annotate_points:
@@ -158,12 +160,12 @@ def multi_cluster_plot(X, cluster_results, similarities, annotate_points=False, 
                 print(f"  Cluster {lbl}: {count} points")
 
     # Bottom row: similarity histogram via helper
-    ax_hist = fig.add_subplot(gs[1, 0])
-    ax_hist_cbar = fig.add_subplot(gs[1, 1])
+    ax_hist = plt.subplot(gs[1, 0])  # type: ignore
+    ax_hist_cbar = plt.subplot(gs[1, 1])  # type: ignore
     plot_similarity_histogram(similarities, ax_hist, ax_hist_cbar)
 
     # --- bottom-right sweep OR threshold text
-    ax_br = fig.add_subplot(gs[1, 2:5])
+    ax_br = plt.subplot(gs[1, 2:5])  # type: ignore
     if sweep_data:
         thresh, n_clust, n_single = sweep_data
         ax_br.plot(thresh, n_clust, label="# clusters")
@@ -188,67 +190,6 @@ def compute_embeddings(paths):
     model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
     embeddings = np.vstack(embed_texts(texts, model))
     return texts, embeddings
-
-# todo: move dump and preview code to separate module
-def _preview(text: str, max_len: int = 120) -> str:
-    """Return a cleaned single-line preview of a markdown task file."""
-    lines = text.splitlines()
-
-    # 1) Strip off optional YAML front-matter (--- ... ---)
-    if lines and lines[0].strip() == "---":
-        try:
-            end = lines.index("---", 1)
-            lines = lines[end + 1 :]
-        except ValueError:
-            pass  # malformed front-matter; keep all lines
-
-    # 2) Drop blank lines & markdown headings consisting only of '#' characters
-    for ln in lines:
-        ln = ln.strip()
-        if not ln or ln.startswith("#") and ln.strip("#").strip() == "":
-            continue
-        # first good line
-        return (ln[: max_len] + "…") if len(ln) > max_len else ln
-
-    # fallback
-    fallback = " ".join(text.split())[: max_len]
-    return fallback + ("…" if len(fallback) == max_len else "")
-
-
-def _dump_clusters(
-    labels: np.ndarray,
-    texts: list[str],
-    *,
-    title: str,
-    min_size: int = 2,
-    show_full: bool = False,
-):
-    """Pretty print clusters in the console."""
-    from collections import defaultdict
-
-    groups = defaultdict(list)
-    for idx, lbl in enumerate(labels):
-        groups[lbl].append(idx)
-
-    print(f"\n{title}")
-    for lbl, idxs in groups.items():
-        if len(idxs) < min_size:
-            continue
-        print(f"\nCluster {lbl}  (size = {len(idxs)})")
-        for i in idxs:
-            if show_full:
-                # indent the full file for easy reading
-                print(textwrap.indent(texts[i].rstrip(), "    "))
-                print("    ———")
-            else:
-                print(f" • [{i:02}] {_preview(texts[i])}")
-
-    singles = [i for i, lbl in enumerate(labels) if len(groups[lbl]) == 1]
-    if singles:
-        print("\nSingleton tasks")
-        for i in singles:
-            print(f" • [{i:02}] {_preview(texts[i])}")
-
 
 def main():
     # Parse arguments
@@ -288,7 +229,7 @@ def main():
         # sweep_data = sweep_thresholds(x, t_min=0.4, t_max=0.95, steps=25)
 
     if args.dump:
-        _dump_clusters(
+        dump_clusters(
             cluster_results["agg_labels"],
             texts,
             title=f"Agglomerative clusters (threshold = {args.cluster_threshold})",

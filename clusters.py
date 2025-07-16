@@ -43,7 +43,7 @@ def cluster_embeddings(X, threshold=0.75, verbose=True):
     agg = AgglomerativeClustering(
         metric="precomputed",
         linkage="average",
-        distance_threshold=1 - threshold,
+        distance_threshold=1.0 - float(threshold),
         n_clusters=None
     )
     agg_labels = agg.fit_predict(dists)
@@ -123,14 +123,15 @@ def sweep_agglomerative(
         agg = AgglomerativeClustering(
             metric="precomputed",
             linkage="average",
-            distance_threshold=1 - t,
+            distance_threshold=1.0 - float(t),
             n_clusters=None
         )
         labels = agg.fit_predict(dists)
         unique, counts = np.unique(labels, return_counts=True)
-        # ignore any noise label (-1) if it appears
         mask = unique != -1
-        n_clusters[k]   = mask.sum()
-        n_singletons[k] = int((counts[mask] == 1).sum())
+        # count valid clusters (excluding noise)
+        n_clusters[k] = int(np.count_nonzero(mask))
+        # count singleton clusters among valid labels
+        n_singletons[k] = int(np.count_nonzero(counts[mask] == 1))
 
     return thresholds, n_clusters, n_singletons
