@@ -7,14 +7,15 @@ warnings.filterwarnings("ignore", message=".*force_all_finite.*")
 import argparse
 import glob
 import os
+import matplotlib as mpl
 import matplotlib.pyplot as plt
+import matplotlib.gridspec as gridspec
 import numpy as np
+import textwrap
 from sentence_transformers import SentenceTransformer
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.manifold import TSNE
 from clusters import cluster_embeddings, sweep_agglomerative
-import matplotlib as mpl
-import matplotlib.gridspec as gridspec
 
 def get_file_paths(src_pattern):
     return sorted(glob.glob(src_pattern))
@@ -182,9 +183,72 @@ def multi_cluster_plot(X, cluster_results, similarities, annotate_points=False, 
     plt.show()
 
 def compute_embeddings(paths):
+    # Read texts and compute embeddings once
     texts = list(read_files(paths))
     model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
-    return np.vstack(embed_texts(texts, model))
+    embeddings = np.vstack(embed_texts(texts, model))
+    return texts, embeddings
+
+# todo: move dump and preview code to separate module
+def _preview(text: str, max_len: int = 120) -> str:
+    """Return a cleaned single-line preview of a markdown task file."""
+    lines = text.splitlines()
+
+    # 1) Strip off optional YAML front-matter (--- ... ---)
+    if lines and lines[0].strip() == "---":
+        try:
+            end = lines.index("---", 1)
+            lines = lines[end + 1 :]
+        except ValueError:
+            pass  # malformed front-matter; keep all lines
+
+    # 2) Drop blank lines & markdown headings consisting only of '#' characters
+    for ln in lines:
+        ln = ln.strip()
+        if not ln or ln.startswith("#") and ln.strip("#").strip() == "":
+            continue
+        # first good line
+        return (ln[: max_len] + "…") if len(ln) > max_len else ln
+
+    # fallback
+    fallback = " ".join(text.split())[: max_len]
+    return fallback + ("…" if len(fallback) == max_len else "")
+
+
+def _dump_clusters(
+    labels: np.ndarray,
+    texts: list[str],
+    *,
+    title: str,
+    min_size: int = 2,
+    show_full: bool = False,
+):
+    """Pretty print clusters in the console."""
+    from collections import defaultdict
+
+    groups = defaultdict(list)
+    for idx, lbl in enumerate(labels):
+        groups[lbl].append(idx)
+
+    print(f"\n{title}")
+    for lbl, idxs in groups.items():
+        if len(idxs) < min_size:
+            continue
+        print(f"\nCluster {lbl}  (size = {len(idxs)})")
+        for i in idxs:
+            if show_full:
+                # indent the full file for easy reading
+                print(textwrap.indent(texts[i].rstrip(), "    "))
+                print("    ———")
+            else:
+                print(f" • [{i:02}] {_preview(texts[i])}")
+
+    singles = [i for i, lbl in enumerate(labels) if len(groups[lbl]) == 1]
+    if singles:
+        print("\nSingleton tasks")
+        for i in singles:
+            print(f" • [{i:02}] {_preview(texts[i])}")
+
 
 def main():
     # Parse arguments
@@ -194,6 +258,7 @@ def main():
     parser.add_argument("--sweep", action="store_true", help="Include threshold sweep line-plot")
     parser.add_argument("--dry-run", action="store_true", help="Just list files & exit")
     parser.add_argument("--debug", action="store_true", help="Annotate points in scatter plots")
+    parser.add_argument("--dump", action="store_true", help="Print task titles per cluster (graph method)")
     args = parser.parse_args()
 
     paths = get_file_paths(args.src_glob)
@@ -203,7 +268,7 @@ def main():
             print(path)
         return
 
-    x = compute_embeddings(paths)
+    texts, x = compute_embeddings(paths)
 
     # Compute cosine similarity
     sims = cosine_similarity(x)
@@ -216,10 +281,20 @@ def main():
 
     print("\nClustering summary (Graph / Agglomerative / HDBSCAN):")
     cluster_results = cluster_embeddings(x, threshold=args.cluster_threshold, verbose=True)
+
     sweep_data = None
     if args.sweep:
         sweep_data = sweep_agglomerative(x, t_min=0.4, t_max=0.95, steps=25)
         # sweep_data = sweep_thresholds(x, t_min=0.4, t_max=0.95, steps=25)
+
+    if args.dump:
+        _dump_clusters(
+            cluster_results["agg_labels"],
+            texts,
+            title=f"Agglomerative clusters (threshold = {args.cluster_threshold})",
+            min_size=2,
+            show_full=True,
+        )
 
     multi_cluster_plot(
         x, cluster_results, upper,
