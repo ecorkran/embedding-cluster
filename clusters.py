@@ -71,3 +71,66 @@ def cluster_embeddings(X, threshold=0.75, verbose=True):
         "hdb_labels": hdb_labels,
         "summary": df
     }
+
+def sweep_thresholds(
+    X: np.ndarray,
+    *,
+    t_min: float = 0.40,
+    t_max: float = 0.95,
+    steps: int  = 20,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Return (thresholds, n_clusters, n_singletons) for a range of graph thresholds.
+    Useful for picking a good cutoff visually.
+    """
+    thresholds   = np.linspace(t_min, t_max, steps)
+    n_clusters   = np.zeros_like(thresholds, dtype=int)
+    n_singletons = np.zeros_like(thresholds, dtype=int)
+
+    sims = cosine_similarity(X)
+    ii, jj = np.triu_indices_from(sims, k=1)
+    n = X.shape[0]
+
+    for k, t in enumerate(thresholds):
+        G = nx.Graph()
+        G.add_nodes_from(range(n))
+        G.add_edges_from((i, j) for i, j in zip(ii, jj) if sims[i, j] >= t)
+        comps = list(nx.connected_components(G))
+        n_clusters[k]   = len(comps)
+        n_singletons[k] = sum(1 for c in comps if len(c) == 1)
+
+    return thresholds, n_clusters, n_singletons
+
+def sweep_agglomerative(
+    X: np.ndarray,
+    *,
+    t_min: float = 0.40,
+    t_max: float = 0.95,
+    steps: int  = 20,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Sweep over similarity thresholds for agglomerative clustering.
+    Returns (thresholds, n_clusters, n_singletons).
+    """
+    thresholds   = np.linspace(t_min, t_max, steps)
+    n_clusters   = np.zeros_like(thresholds, dtype=int)
+    n_singletons = np.zeros_like(thresholds, dtype=int)
+
+    sims = cosine_similarity(X)
+    dists = 1 - sims
+
+    for k, t in enumerate(thresholds):
+        agg = AgglomerativeClustering(
+            metric="precomputed",
+            linkage="average",
+            distance_threshold=1 - t,
+            n_clusters=None
+        )
+        labels = agg.fit_predict(dists)
+        unique, counts = np.unique(labels, return_counts=True)
+        # ignore any noise label (-1) if it appears
+        mask = unique != -1
+        n_clusters[k]   = mask.sum()
+        n_singletons[k] = int((counts[mask] == 1).sum())
+
+    return thresholds, n_clusters, n_singletons

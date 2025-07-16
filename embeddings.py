@@ -12,9 +12,8 @@ import numpy as np
 from sentence_transformers import SentenceTransformer
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.manifold import TSNE
-from clusters import cluster_embeddings
+from clusters import cluster_embeddings, sweep_agglomerative
 import matplotlib as mpl
-from matplotlib import colormaps
 import matplotlib.gridspec as gridspec
 
 def get_file_paths(src_pattern):
@@ -98,7 +97,7 @@ def print_percentile_table(similarities, percentiles=None):
         val = np.percentile(similarities, p)
         print(f"   {p:>6.0f}%   |   {val:>8.4f}")
 
-def multi_cluster_plot(X, cluster_results, similarities, annotate_points=False, threshold=None):
+def multi_cluster_plot(X, cluster_results, similarities, annotate_points=False, threshold=None, sweep_data=None):
     # Compute 2D projection once
     tsne = TSNE(n_components=2, random_state=42, init="pca")
     X2 = tsne.fit_transform(X)
@@ -161,14 +160,24 @@ def multi_cluster_plot(X, cluster_results, similarities, annotate_points=False, 
     ax_hist = fig.add_subplot(gs[1, 0])
     ax_hist_cbar = fig.add_subplot(gs[1, 1])
     plot_similarity_histogram(similarities, ax_hist, ax_hist_cbar)
-    # Add threshold display in the new subplot area
-    ax_border = fig.add_subplot(gs[1, 2:6])
-    ax_border.axis('off')
-    ax_border.text(
-        0.00, 0.98, f"Clustering threshold: {threshold}",
-        ha='left', va='top', fontsize=10,
-        transform=ax_border.transAxes
-    )
+
+    # --- bottom-right sweep OR threshold text
+    ax_br = fig.add_subplot(gs[1, 2:5])
+    if sweep_data:
+        thresh, n_clust, n_single = sweep_data
+        ax_br.plot(thresh, n_clust, label="# clusters")
+        ax_br.plot(thresh, n_single, label="# singletons")
+        ax_br.axvline(threshold, color="r", linestyle="--", alpha=0.6)
+        ax_br.set_xlabel("Cosine threshold")
+        ax_br.set_title("Threshold sweep (Agglomerative method)")
+        ax_br.legend()
+    else:
+        ax_br.axis("off")
+        ax_br.text(0.00, 0.98,
+                   f"Clustering threshold: {threshold}",
+                   ha="left", va="top", fontsize=10,
+                   transform=ax_br.transAxes)
+
     plt.tight_layout()
     plt.show()
 
@@ -180,13 +189,14 @@ def compute_embeddings(paths):
 def main():
     # Parse arguments
     parser = argparse.ArgumentParser()
-    parser.add_argument("src_pattern", help="Source file glob pattern, e.g. mydir/tasks.*.md")
-    parser.add_argument("--dry-run", action="store_true", help="Only list files to be processed and exit")
-    parser.add_argument("--cluster-threshold", type=float, default=0.75, help="Clustering similarity threshold (default: 0.75)")
-    parser.add_argument("--debug", action="store_true", help="Show cluster labels on plot and print cluster sizes")
+    parser.add_argument("src_glob", help="Glob for input files, e.g. data/tasks.*.md")
+    parser.add_argument("--cluster-threshold", type=float, default=0.75, help="Graph similarity cutoff (default 0.75)")
+    parser.add_argument("--sweep", action="store_true", help="Include threshold sweep line-plot")
+    parser.add_argument("--dry-run", action="store_true", help="Just list files & exit")
+    parser.add_argument("--debug", action="store_true", help="Annotate points in scatter plots")
     args = parser.parse_args()
 
-    paths = get_file_paths(args.src_pattern)
+    paths = get_file_paths(args.src_glob)
     if args.dry_run:
         print("Files to be processed:")
         for path in paths:
@@ -206,7 +216,17 @@ def main():
 
     print("\nClustering summary (Graph / Agglomerative / HDBSCAN):")
     cluster_results = cluster_embeddings(x, threshold=args.cluster_threshold, verbose=True)
-    multi_cluster_plot(x, cluster_results, upper, annotate_points=args.debug, threshold=args.cluster_threshold)
+    sweep_data = None
+    if args.sweep:
+        sweep_data = sweep_agglomerative(x, t_min=0.4, t_max=0.95, steps=25)
+        # sweep_data = sweep_thresholds(x, t_min=0.4, t_max=0.95, steps=25)
+
+    multi_cluster_plot(
+        x, cluster_results, upper,
+        annotate_points=args.debug,
+        threshold=args.cluster_threshold,
+        sweep_data=sweep_data,
+    )
     # Optionally, you could further process or print cluster_results here
 
 if __name__ == "__main__":
