@@ -15,6 +15,7 @@ from sklearn.manifold import TSNE
 from clusters import cluster_embeddings
 import matplotlib as mpl
 from matplotlib import colormaps
+import matplotlib.gridspec as gridspec
 
 def get_file_paths(src_pattern):
     return sorted(glob.glob(src_pattern))
@@ -83,7 +84,7 @@ def print_percentile_table(similarities, percentiles=None):
         val = np.percentile(similarities, p)
         print(f"   {p:>6.0f}%   |   {val:>8.4f}")
 
-def multi_cluster_plot(X, cluster_results, annotate_points=False):
+def multi_cluster_plot(X, cluster_results, similarities, annotate_points=False):
     # Compute 2D projection once
     tsne = TSNE(n_components=2, random_state=42, init="pca")
     X2 = tsne.fit_transform(X)
@@ -92,9 +93,11 @@ def multi_cluster_plot(X, cluster_results, annotate_points=False):
         "Agglomerative": cluster_results["agg_labels"],
         "HDBSCAN": cluster_results["hdb_labels"],
     }
-    plt.figure(figsize=(16, 4))
+    fig = plt.figure(figsize=(18, 8))
+    gs = gridspec.GridSpec(2, 6, height_ratios=[3, 2], width_ratios=[5, 0.3, 5, 0.3, 5, 0.3])
+
     for i, (name, labels) in enumerate(labels_dict.items()):
-        ax = plt.subplot(1, 3, i + 1)
+        ax = plt.subplot(gs[0, i*2])
         unique_labels, counts = np.unique(labels, return_counts=True)
         label_to_count = dict(zip(unique_labels, counts))
         # Identify singleton clusters
@@ -125,11 +128,12 @@ def multi_cluster_plot(X, cluster_results, annotate_points=False):
         ax.set_title(f"{name} Clusters")
         ax.set_xlabel("t-SNE 1")
         ax.set_ylabel("t-SNE 2")
-        # Colorbar for non-singleton clusters only
+        # Colorbar for non-singleton clusters only (placed next to each plot)
         if n_non_singleton > 0:
             norm = mpl.colors.Normalize(vmin=0, vmax=n_non_singleton-1)
             sm = mpl.cm.ScalarMappable(norm=norm, cmap=color_map)
-            cbar = plt.colorbar(sm, ax=ax, orientation='vertical', fraction=0.03, pad=0.04)
+            cax = fig.add_subplot(gs[0, i*2+1])
+            cbar = plt.colorbar(sm, cax=cax, orientation='vertical')
             cbar.set_ticks([])
         if annotate_points:
             for (x, y, lbl) in zip(X2[:, 0], X2[:, 1], labels):
@@ -138,6 +142,29 @@ def multi_cluster_plot(X, cluster_results, annotate_points=False):
             print(f"{name} cluster sizes:")
             for lbl, count in zip(unique_labels, counts):
                 print(f"  Cluster {lbl}: {count} points")
+    # Bottom row: similarity histogram
+    ax_hist = fig.add_subplot(gs[1, 0])
+    n_bins = 100
+    hist_cmap = plt.get_cmap('Blues')
+    n, bins, patches = ax_hist.hist(
+        similarities, bins=n_bins,
+        color=hist_cmap(0.7), edgecolor=hist_cmap(0.9), alpha=0.9
+    )
+    bin_centers = 0.5 * (bins[:-1] + bins[1:])
+    norm_hist = mpl.colors.Normalize(vmin=min(similarities), vmax=max(similarities))
+    for c, p in zip(bin_centers, patches):
+        fc = hist_cmap(norm_hist(c))
+        p.set_facecolor(fc)
+        p.set_edgecolor(hist_cmap(min(norm_hist(c)+0.2, 1.0)))
+    ax_hist.set_xlabel('Cosine similarity')
+    ax_hist.set_ylabel('Number of pairs')
+    ax_hist.set_title('Similarity Histogram')
+    # Histogram colorbar
+    ax_hist_cbar = fig.add_subplot(gs[1, 1])
+    sm_hist = mpl.cm.ScalarMappable(norm=norm_hist, cmap=hist_cmap)
+    sm_hist.set_array([])
+    cbar_hist = plt.colorbar(sm_hist, cax=ax_hist_cbar, orientation='vertical')
+    cbar_hist.set_ticks([])
     plt.tight_layout()
     plt.show()
 
@@ -172,11 +199,10 @@ def main():
     print("First 5 similarities:", upper[:5])
     print_similarity_table(upper)
     print_percentile_table(upper)
-    plot(upper)
 
     print("\nClustering summary (Graph / Agglomerative / HDBSCAN):")
     cluster_results = cluster_embeddings(x, threshold=args.cluster_threshold, verbose=True)
-    multi_cluster_plot(x, cluster_results, annotate_points=args.debug)
+    multi_cluster_plot(x, cluster_results, upper, annotate_points=args.debug)
     # Optionally, you could further process or print cluster_results here
 
 if __name__ == "__main__":
