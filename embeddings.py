@@ -98,7 +98,7 @@ def print_percentile_table(similarities, percentiles=None):
         val = np.percentile(similarities, p)
         print(f"   {p:>6.0f}%   |   {val:>8.4f}")
 
-def multi_cluster_plot(X, cluster_results, similarities, annotate_points=False):
+def multi_cluster_plot(X, cluster_results, similarities, annotate_points=False, threshold=None):
     # Compute 2D projection once
     tsne = TSNE(n_components=2, random_state=42, init="pca")
     X2 = tsne.fit_transform(X)
@@ -161,6 +161,14 @@ def multi_cluster_plot(X, cluster_results, similarities, annotate_points=False):
     ax_hist = fig.add_subplot(gs[1, 0])
     ax_hist_cbar = fig.add_subplot(gs[1, 1])
     plot_similarity_histogram(similarities, ax_hist, ax_hist_cbar)
+    # Add threshold display in the new subplot area
+    ax_border = fig.add_subplot(gs[1, 2:6])
+    ax_border.axis('off')
+    ax_border.text(
+        0.00, 0.98, f"Clustering threshold: {threshold}",
+        ha='left', va='top', fontsize=10,
+        transform=ax_border.transAxes
+    )
     plt.tight_layout()
     plt.show()
 
@@ -198,7 +206,7 @@ def main():
 
     print("\nClustering summary (Graph / Agglomerative / HDBSCAN):")
     cluster_results = cluster_embeddings(x, threshold=args.cluster_threshold, verbose=True)
-    multi_cluster_plot(x, cluster_results, upper, annotate_points=args.debug)
+    multi_cluster_plot(x, cluster_results, upper, annotate_points=args.debug, threshold=args.cluster_threshold)
     # Optionally, you could further process or print cluster_results here
 
 if __name__ == "__main__":
