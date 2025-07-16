@@ -33,12 +33,26 @@ def dry_run(paths):
     for p in paths:
         print(os.path.abspath(p))
 
-def plot(similarities, bins=100):
-    # Plot histogram
-    plt.hist(similarities, bins=bins)
-    plt.xlabel("Cosine similarity")
-    plt.ylabel("Number of pairs")
-    plt.show()
+def plot_similarity_histogram(similarities, ax, cbar_ax, n_bins=100):
+    # Plot a shaded histogram with percentiles
+    hist_cmap = plt.get_cmap('Blues')
+    n, bins, patches = ax.hist(
+        similarities, bins=n_bins,
+        color=hist_cmap(0.7), edgecolor=hist_cmap(0.9), alpha=0.9
+    )
+    bin_centers = 0.5 * (bins[:-1] + bins[1:])
+    norm_hist = mpl.colors.Normalize(vmin=min(similarities), vmax=max(similarities))
+    for c, p in zip(bin_centers, patches):
+        fc = hist_cmap(norm_hist(c))
+        p.set_facecolor(fc)
+        p.set_edgecolor(hist_cmap(min(norm_hist(c)+0.2, 1.0)))
+    ax.set_xlabel('Cosine similarity')
+    ax.set_ylabel('Number of pairs')
+    ax.set_title('Similarity Histogram')
+    sm_hist = mpl.cm.ScalarMappable(norm=norm_hist, cmap=hist_cmap)
+    sm_hist.set_array([])
+    cbar = plt.colorbar(sm_hist, cax=cbar_ax, orientation='vertical')
+    cbar.set_ticks([])
 
 def cluster_plot(X, graph_labels):
 
@@ -142,29 +156,11 @@ def multi_cluster_plot(X, cluster_results, similarities, annotate_points=False):
             print(f"{name} cluster sizes:")
             for lbl, count in zip(unique_labels, counts):
                 print(f"  Cluster {lbl}: {count} points")
-    # Bottom row: similarity histogram
+
+    # Bottom row: similarity histogram via helper
     ax_hist = fig.add_subplot(gs[1, 0])
-    n_bins = 100
-    hist_cmap = plt.get_cmap('Blues')
-    n, bins, patches = ax_hist.hist(
-        similarities, bins=n_bins,
-        color=hist_cmap(0.7), edgecolor=hist_cmap(0.9), alpha=0.9
-    )
-    bin_centers = 0.5 * (bins[:-1] + bins[1:])
-    norm_hist = mpl.colors.Normalize(vmin=min(similarities), vmax=max(similarities))
-    for c, p in zip(bin_centers, patches):
-        fc = hist_cmap(norm_hist(c))
-        p.set_facecolor(fc)
-        p.set_edgecolor(hist_cmap(min(norm_hist(c)+0.2, 1.0)))
-    ax_hist.set_xlabel('Cosine similarity')
-    ax_hist.set_ylabel('Number of pairs')
-    ax_hist.set_title('Similarity Histogram')
-    # Histogram colorbar
     ax_hist_cbar = fig.add_subplot(gs[1, 1])
-    sm_hist = mpl.cm.ScalarMappable(norm=norm_hist, cmap=hist_cmap)
-    sm_hist.set_array([])
-    cbar_hist = plt.colorbar(sm_hist, cax=ax_hist_cbar, orientation='vertical')
-    cbar_hist.set_ticks([])
+    plot_similarity_histogram(similarities, ax_hist, ax_hist_cbar)
     plt.tight_layout()
     plt.show()
 
