@@ -7,6 +7,7 @@ def preview(text: str, max_len: int = 120) -> str:
     """Return a cleaned single-line preview of a markdown task file."""
     lines = text.splitlines()
 
+    val = 4
     # 1) Strip optional YAML front-matter
     if lines and lines[0].strip() == "---":
         try:
